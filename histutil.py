@@ -1218,7 +1218,7 @@ class BDT:
 Model a boosted decision tree using the weights from a class file created by
 TMVA.
     '''
-    def __init__(self, filename, normweights=False):        
+    def __init__(self, filename, normweights=False, debug=False):        
         import re
         from os import path
         from sys import exit
@@ -1227,6 +1227,7 @@ TMVA.
             exit()
 
         self.normweights = normweights
+        self.debug = debug
         
         # value to be assigned to each leaf of tree; default: node purity
         self.valueType   = 0
@@ -1313,19 +1314,6 @@ TMVA.
         
     def sumWeight(self):
         return sum(self.weights)
-
-    def lines(self):
-        g = []
-        x = array('d'); x.append(0); x.append(0)
-        y = array('d'); y.append(0); y.append(0)
-        self.linseg.sort()
-        lastline = self.linseg[0]
-        for line in self.linseg[1:]:
-            if line == lastline: continue
-            x[0], y[0], x[1], y[1] = line
-            g.append(TGraph(2, x, y))
-            lastline = line
-        return g
     
     def setValueType(self, which=0):
         self.valueType = which
@@ -1372,15 +1360,7 @@ TMVA.
         self.hplot.AddBin(xmin, ymin, xmax, ymax)            
         self.hplot.SetBinContent(self.binNumber, w)
         self.hplotclone.AddBin(xmin, ymin, xmax, ymax)            
-                
-        self.linseg.append( (xmin, ymin, xmin, ymax) )
-        self.linseg.append( (xmin, ymax, xmax, ymax) )
-        self.linseg.append( (xmax, ymax, xmax, ymin) )
-        self.linseg.append( (xmax, ymin, xmin, ymin) )
-
-        ## print "==> bin number: %d" % self.binNumber
-        ## for line in self.linseg[-4:]:
-        ##     print "\t", line
+        print "==> bin number: %d\tvalue = %10.3f" % (self.binNumber, w)
             
         if node.selector < 0:
             return self.hplot
