@@ -1218,7 +1218,7 @@ class BDT:
 Model a boosted decision tree using the weights from a class file created by
 TMVA.
     '''
-    def __init__(self, filename):        
+    def __init__(self, filename, normweights=False):        
         import re
         from os import path
         from sys import exit
@@ -1226,7 +1226,7 @@ TMVA.
             print '** BDT ** error ** cannot open file %s' % filename
             exit()
 
-        self.normweights = True
+        self.normweights = normweights
         
         # value to be assigned to each leaf of tree; default: node purity
         self.valueType   = 0
@@ -1342,6 +1342,7 @@ TMVA.
             self.hplot.SetNdivisions(505, "X")
             self.hplot.SetNdivisions(505, "Y")
             self.hplot.SetMinimum(0)
+            self.hplotclone = self.hplot.Clone('%sclone' % hname)
             self.binNumber = 0
             self.linseg = []
             node = self.forest[itree]
@@ -1364,13 +1365,14 @@ TMVA.
             sys.exit(0)
 
         if self.valueType == 0:
-            value = node.purity
+            w = node.purity
         else:
-            value = 5 - node.nodeType
+            w = 5 - node.nodeType
         
         self.hplot.AddBin(xmin, ymin, xmax, ymax)            
-        self.hplot.SetBinContent(self.binNumber, value)
-        
+        self.hplot.SetBinContent(self.binNumber, w)
+        self.hplotclone.AddBin(xmin, ymin, xmax, ymax)            
+                
         self.linseg.append( (xmin, ymin, xmin, ymax) )
         self.linseg.append( (xmin, ymax, xmax, ymax) )
         self.linseg.append( (xmax, ymax, xmax, ymin) )
@@ -1410,6 +1412,6 @@ TMVA.
             self.plot(itree, hname,
                       xtitle, ytitle, xmin, xmax, ymin, ymax,
                       node.right)
-        return self.hplot
+        return (self.hplot, self.hplotclone)
 
    
