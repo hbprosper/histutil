@@ -9,6 +9,7 @@ from array import array
 from string import split, strip, atoi, atof, replace, joinfields
 from math import *
 from ROOT import *
+from time import sleep
 #-----------------------------------------------------------------------------
 # Hack to suppress harmless warning
 # see: https://root.cern.ch/phpBB3/viewtopic.php?f=14&t=17682
@@ -646,10 +647,10 @@ def mkroc(name, hsig, hbkg, lcolor=kBlue, lwidth=2, ndivx=505, ndivy=505):
     g.SetLineColor(lcolor)
     g.SetLineWidth(lwidth)
 
-    g.GetXaxis().SetTitle("#font[12]{#epsilon_{b}}")
+    g.GetXaxis().SetTitle("#font[12]{f_{B}}")
     g.GetXaxis().SetLimits(0,1)
 
-    g.GetYaxis().SetTitle("#font[12]{#epsilon_{s}}")
+    g.GetYaxis().SetTitle("#font[12]{f_{S}}")
     g.GetHistogram().SetAxisRange(0,1, "Y");
 
     g.GetHistogram().SetNdivisions(ndivx, "X")
@@ -1165,7 +1166,7 @@ class Ntuple:
             self.read(self.row)
             self.row += 1
             return self.event
-#------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------
 class Node:
     def __init__(self,
                  left, right, selector, cutValue,
@@ -1174,8 +1175,9 @@ class Node:
         self.right = right           # right node
         self.selector = selector     # variable index
         self.cutValue = cutValue     # variable value
-        self.cutType  = cutType      
-        self.nodeType = nodeType     # -1, 0, 1 (bkg leaf, internal node, signal leaf)
+        self.cutType  = cutType
+        # -1, 0, 1 (bkg leaf, internal node, signal leaf)              
+        self.nodeType = nodeType     
         self.purity   = purity
         self.response = response
 
@@ -1212,7 +1214,7 @@ class Node:
     def getResponse(self):
         return self.response
 
-#------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------
 class BDT:
     '''
 Model a boosted decision tree using the weights from a class file created by
@@ -1223,8 +1225,7 @@ TMVA.
         from os import path
         from sys import exit
         if not path.exists(filename):
-            print '** BDT ** error ** cannot open file %s' % filename
-            exit()
+            exit('** BDT ** error ** cannot open file %s' % filename)
 
         self.normweights = normweights
         self.debug = debug
@@ -1252,6 +1253,26 @@ TMVA.
             if index % 100 == 0:
                 print index
                 
+        # for each tree, count number of leaves
+        self.scount = [0]*len(self.forest)
+        self.bcount = [0]*len(self.forest)
+        for itree in xrange(len(self.forest)):
+            self.itree = itree
+            current = self.forest[itree]
+            self.__count(itree, current)
+            ## print "tree: %5d\tS-leaves: %2d\tB-leaves: %2d" % \
+            ##   (itree, self.scount[itree], self.bcount[itree])
+
+    def __count(self, itree, node):
+        if node.getNodeType() == 0:
+            self.__count(itree, node.getLeft())
+            self.__count(itree, node.getRight())
+        elif node.getNodeType() < 0:
+            self.bcount[itree] += 1
+        else:
+            self.scount[itree] += 1
+        return
+        
     def __del__(self):
         pass
 
@@ -1277,31 +1298,58 @@ TMVA.
         if self.normweights:
             value /= norm
         else:
-            value = 1.0/exp(1 + exp(-2*value))
+            value = 1.0/(1 + exp(-2*value))
         return value
 
-    def printTree(self, itree, varnames, depth=0, which=0, node=None):
-        if which == 0:
+    def printTree(self, itree, varnames, depth=0, which='ROOT', node=None):
+        if depth == 0:
             node = self.forest[itree]
             print "tree number %d\tweight = %10.3e" % (itree,
                                                        self.weights[itree])
+            node.xmin =   0.0
+            node.xmax = 250.0
+            node.ymin =   8.0
+            node.ymax =  14.0
             
-        if node == 0: return
         if node == None: return
-        if node.selector < 0: return
         
-        name = varnames[node.selector]
-        value= node.cutValue
-        if which == 0:
-            which = 'root  node'
-        elif which < 0:
-            which = 'left  node'
-        else:
-            which = 'right node'            
-        print "%10d %10s %10s\t%10.2f" % (depth, which, name, value)
         depth += 1
-        self.printTree(itree, varnames, depth, -1, node.left)
-        self.printTree(itree, varnames, depth,  1, node.right)
+        offset = "-"*depth
+                
+        if node.selector < 0:
+            name  = 'leaf'
+            value = 0
+        else:
+            name  = varnames[node.selector]                    
+            value = node.cutValue
+
+        print "%4d %-s %-6s %-10s %6.2f %6.3f (%4.1f, %4.1f, %4.1f, %4.1f)" % \
+          (depth, offset, which, name, value, node.purity,
+           node.xmin, node.xmax, node.ymin, node.ymax)
+                
+        if node.selector < 0:
+            return
+        
+        node.left.xmin  = min(node.xmin, node.xmax)
+        node.left.xmax  = max(node.xmin, node.xmax)
+        node.left.ymin  = min(node.ymin, node.ymax)
+        node.left.ymax  = max(node.ymin, node.ymax)
+        
+        node.right.xmin = min(node.xmin, node.xmax)
+        node.right.xmax = max(node.xmin, node.xmax)
+        node.right.ymin = min(node.ymin, node.ymax)
+        node.right.ymax = max(node.ymin, node.ymax)
+        
+        if node.selector == 0:
+            node.left.xmax  = value
+            node.right.xmin = value
+        else:
+            node.left.ymax  = value
+            node.right.ymin = value            
+        
+        self.printTree(itree, varnames, depth, 'left',  node.left)
+        
+        self.printTree(itree, varnames, depth, 'right', node.right)
 
     def weight(self, itree):
         if itree >=0 and itree < len(self.weights):
@@ -1317,81 +1365,83 @@ TMVA.
     
     def setValueType(self, which=0):
         self.valueType = which
-        
-    def plot(self, itree, hname, xtitle, ytitle,
-             xmin, xmax, ymin, ymax, 
-             node=None):
-        
-        if node == None:
-            self.hplot = TH2Poly(hname, "", xmin, xmax, ymin, ymax)
-            self.hplot.GetXaxis().SetTitle(xtitle)
-            self.hplot.GetYaxis().SetTitle(ytitle)
-            self.hplot.GetYaxis().SetTitleOffset(1.6)
-            self.hplot.SetNdivisions(505, "X")
-            self.hplot.SetNdivisions(505, "Y")
-            self.hplot.SetMinimum(0)
-            self.hplotclone = self.hplot.Clone('%sclone' % hname)
-            self.binNumber = 0
-            self.linseg = []
-            node = self.forest[itree]
-            
-        if node == None:
-            print "*** node is None - shouldn't happen ***"
-            sys.exit(0)
 
-        if self.hplot == None:
-            print "*** hplot is None - shouldn't happen ***"
-            sys.exit(0)
-
-        if node == 0:
-            return self.hplot
- 
-        self.binNumber += 1
+    def __get2dbins(self, node, depth=0, which='ROOT'):
+        if depth == 0:
+            self.bins = []
         
-        if self.binNumber > 200:
-            print "*** lost in trees ***"
-            sys.exit(0)
+        depth += 1
+        offset = "-"*depth
 
-        if self.valueType == 0:
-            w = node.purity
-        else:
-            w = 5 - node.nodeType
-        
-        self.hplot.AddBin(xmin, ymin, xmax, ymax)            
-        self.hplot.SetBinContent(self.binNumber, w)
-        self.hplotclone.AddBin(xmin, ymin, xmax, ymax)            
-        print "==> bin number: %d\tvalue = %10.3f" % (self.binNumber, w)
-            
+        value = node.cutValue            
         if node.selector < 0:
-            return self.hplot
-        
-        value = node.cutValue
-        if node.selector == 0:
-            # left
-            xmax1= xmax
-            xmax = value
-            self.plot(itree, hname,
-                      xtitle, ytitle, xmin, xmax, ymin, ymax,
-                      node.left)
-            # right
-            xmax = xmax1
-            xmin = value
-            self.plot(itree, hname,
-                      xtitle, ytitle, xmin, xmax, ymin, ymax,
-                      node.right)
+            name  = 'LEAF'
+            value = 0
+        elif node.selector == 0:
+            name = 'x-cut'
         else:
-            # left
-            ymax1 = ymax
-            ymax = value
-            self.plot(itree, hname,
-                      xtitle, ytitle, xmin, xmax, ymin, ymax,
-                      node.left)
-            # right
-            ymax = ymax1
-            ymin = value
-            self.plot(itree, hname,
-                      xtitle, ytitle, xmin, xmax, ymin, ymax,
-                      node.right)
+            name = 'y-cut'
+
+        ## print "%4d %-s %-6s %-10s %6.2f %6.3f (%4.1f, %4.1f, %4.1f, %4.1f)" % \
+        ##   (depth, offset, which, name, value, node.purity,
+        ##    node.xmin, node.xmax, node.ymin, node.ymax)
+                
+        if node.selector < 0:
+            self.bins.append(node)
+            return
+        
+        node.left.xmin  = min(node.xmin, node.xmax)
+        node.left.xmax  = max(node.xmin, node.xmax)
+        node.left.ymin  = min(node.ymin, node.ymax)
+        node.left.ymax  = max(node.ymin, node.ymax)
+        
+        node.right.xmin = min(node.xmin, node.xmax)
+        node.right.xmax = max(node.xmin, node.xmax)
+        node.right.ymin = min(node.ymin, node.ymax)
+        node.right.ymax = max(node.ymin, node.ymax)
+        
+        if node.selector == 0:
+            node.left.xmax  = value
+            node.right.xmin = value
+        else:
+            node.left.ymax  = value
+            node.right.ymin = value            
+
+        self.__get2dbins(node.left,   depth, 'left')
+        self.__get2dbins(node.right,  depth, 'right')
+        
+        
+    def plot2d(self, itree, hname, xtitle, ytitle, xmin, xmax, ymin, ymax):
+        node = self.forest[itree]
+        node.xmin = xmin
+        node.xmax = xmax
+        node.ymin = ymin
+        node.ymax = ymax
+        self.__get2dbins(node)
+        
+        self.hplot = TH2Poly(hname, "", xmin, xmax, ymin, ymax)
+        self.hplot.GetXaxis().SetTitle(xtitle)
+        self.hplot.GetYaxis().SetTitle(ytitle)
+        self.hplot.GetYaxis().SetTitleOffset(1.6)
+        self.hplot.SetNdivisions(505, "X")
+        self.hplot.SetNdivisions(505, "Y")
+        if self.valueType == 0:
+            self.hplot.SetMinimum(0)
+            self.hplot.SetMaximum(1)
+        else:
+            self.hplot.SetMinimum(-1)
+            self.hplot.SetMaximum( 1)
+        self.hplotclone = self.hplot.Clone('%sclone' % hname)
+
+        for ii, node in enumerate(self.bins):
+            self.hplotclone.AddBin(node.xmin, node.ymin, node.xmax, node.ymax)
+            ibin = self.hplot.AddBin(node.xmin, node.ymin, node.xmax, node.ymax)
+            if self.valueType == 0:
+                w = node.purity
+            else:
+                w = node.nodeType                        
+            self.hplot.SetBinContent(ibin, w)
+            
         return (self.hplot, self.hplotclone)
 
    
