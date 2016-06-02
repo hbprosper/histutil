@@ -1142,6 +1142,9 @@ class Ntuple:
         else:
             return None
 
+    def __call__(self, variable):
+        return self.get(variable)
+    
     def __str__(self):
         rec = ''
         for ii, (tname, bname, maxcount) in enumerate(self.vars):
