@@ -1130,7 +1130,8 @@ class Ntuple:
         self.tree.GetEntry(localentry)
 
         def treeNumber(self):
-            return (self.currentTreeNumber, self.filename[self.currentTreeNumber])
+            return (self.currentTreeNumber,
+                    self.filename[self.currentTreeNumber])
 
         def good(self):
             return self.status == 0
