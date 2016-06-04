@@ -1124,15 +1124,17 @@ class Ntuple:
             self.tree  = self.chain.GetTree()
             for tname, name, maxcount in self.vars:
                 jj = self.buffermap[name]
-                self.tree.SetBranchAddress(name, AddressOf(self.buffer[jj], name))
+                self.tree.SetBranchAddress(name,
+                                           AddressOf(self.buffer[jj], name))
 
         self.tree.GetEntry(localentry)
 
-        def treeNumber(self):
-            return (self.currentTreeNumber, self.filename[self.currentTreeNumber])
+    def treeNumber(self):
+        return (self.currentTreeNumber,
+                self.filename[self.currentTreeNumber])
 
-        def good(self):
-            return self.status == 0
+    def good(self):
+        return self.status == 0
 
     def get(self, variable):
         if self.buffermap.has_key(variable):
@@ -1141,6 +1143,9 @@ class Ntuple:
         else:
             return None
 
+    def __call__(self, variable):
+        return self.get(variable)
+    
     def __str__(self):
         rec = ''
         for ii, (tname, bname, maxcount) in enumerate(self.vars):
