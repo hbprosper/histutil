@@ -905,6 +905,9 @@ class Buffer:
         else:
             raise AttributeError(variable)
 
+    def __call__(self, variable):
+        return self.__getattr(variable)
+    
     def __str__(self):
         s = 'Event variables:\n'
         for tname, name, maxcount in self.variable:
