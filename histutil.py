@@ -906,7 +906,7 @@ class Buffer:
             raise AttributeError(variable)
 
     def __call__(self, variable):
-        return self.__getattr(variable)
+        return self.__getattr__(variable)
     
     def __str__(self):
         s = 'Event variables:\n'
