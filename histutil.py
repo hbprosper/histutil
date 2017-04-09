@@ -2,6 +2,7 @@
 # Some ROOT histogram utilities
 # Created: sometime in the early 21st century, HBP
 # Updated: 28-May-2016 HBP - fix Table (for RGS paper)
+#          09-Apr-2017 HBP - add ranking to BDT
 #-----------------------------------------------------------------------------
 import os, sys, re
 from glob import glob
@@ -1199,7 +1200,7 @@ class Node:
         else:
             return not result
 
-    # test event if it decends the tree at this node to the left 
+    # test event if it descends the tree at this node to the left 
     def goesLeft (self, inputValues):
         if not self.goesRight(inputValues):
             return True
@@ -1223,76 +1224,51 @@ class Node:
 
 #-----------------------------------------------------------------------------
 class BDT:
-    '''
-Model a boosted decision tree using the weights from a class file created by
-TMVA.
-    '''
-    def __init__(self, filename, normweights=False, debug=False):        
+    def __init__(self, filename, normweights=True):        
         import re
         from os import path
         from sys import exit
         if not path.exists(filename):
-            exit('** BDT ** error ** cannot open file %s' % filename)
+            print '** BDT ** error ** cannot open file %s' % filename
+            exit()
 
         self.normweights = normweights
-        self.debug = debug
-        
-        # value to be assigned to each leaf of tree; default: node purity
-        self.valueType   = 0
         
         record = open(filename).read()
         gettree = re.compile('^  [/][/] itree[^)]+[)];[^;]+;', re.M)
         recs = gettree.findall(record)
+
+        # get names of input variables
+        getinputvars = re.compile('(?<=const char\* inputVars\[\] = ).*')
+        getvars      = re.compile('(?<= ").*?(?=",)|(?<= ").*?(?=" )')
+        self.varnames= getvars.findall(getinputvars.findall(record)[0])        
         self.weights = []
         self.forest  = []
 
         for index, record in enumerate(recs):
             record = replace(record, 'NN(', 'Node(')
             record = replace(record,'  //','#')
-            record = replace(record,
-                             '  fBoostWeights.push_back',
-                             'self.weights.append')
-            record = replace(record,
-                             '  fForest.push_back',
-                             'self.forest.append')
+            record = replace(record,'  fBoostWeights.push_back',
+                                 'self.weights.append')
+            record = replace(record,'  fForest.push_back',
+                                 'self.forest.append')
             record = replace(record,';','')
             exec(record)
-            if index % 100 == 0:
-                print index
                 
-        # for each tree, count number of leaves
-        self.scount = [0]*len(self.forest)
-        self.bcount = [0]*len(self.forest)
-        for itree in xrange(len(self.forest)):
-            self.itree = itree
-            current = self.forest[itree]
-            self.__count(itree, current)
-            ## print "tree: %5d\tS-leaves: %2d\tB-leaves: %2d" % \
-            ##   (itree, self.scount[itree], self.bcount[itree])
-
-    def __count(self, itree, node):
-        if node.getNodeType() == 0:
-            self.__count(itree, node.getLeft())
-            self.__count(itree, node.getRight())
-        elif node.getNodeType() < 0:
-            self.bcount[itree] += 1
-        else:
-            self.scount[itree] += 1
-        return
-        
     def __del__(self):
         pass
 
-    def __call__(self, inputValues, firstTree=0, lastTree=-1):
-        totalTrees = len(self.forest)
+    def __call__(self, inputValues, numTrees=-1):
 
-        if firstTree < 0: firstTree = 0
-        if lastTree  < 0: lastTree  = totalTrees-1
-        if firstTree > lastTree: firstTree = lastTree
-            
+        totalTrees = len(self.forest)
+        if numTrees > 0:
+            ntrees = min(numTrees, totalTrees)
+        else:
+            ntrees = totalTrees
+
         value = 0.0
         norm  = 0.0
-        for itree in xrange(firstTree, lastTree+1):
+        for itree in xrange(ntrees):
             current = self.forest[itree]
             while current.getNodeType() == 0:
                 if current.goesRight(inputValues):
@@ -1301,152 +1277,154 @@ TMVA.
                     current = current.getLeft()
             value += self.weights[itree] * current.getNodeType()
             norm  += self.weights[itree]
-
         if self.normweights:
             value /= norm
         else:
             value = 1.0/(1 + exp(-2*value))
         return value
 
-    def printTree(self, itree, varnames, depth=0, which='ROOT', node=None):
-        if depth == 0:
+    def __len__(self):
+        return len(self.forest)
+    
+    def variables(self):
+        return self.varnames
+    
+    def printTree(self, itree, depth=0, which=0, node=None):
+        if which == 0:
             node = self.forest[itree]
-            print "tree number %d\tweight = %10.3e" % (itree,
-                                                       self.weights[itree])
-            node.xmin =   0.0
-            node.xmax = 250.0
-            node.ymin =   8.0
-            node.ymax =  14.0
+            print "tree number %d\tweight = %10.3e" % \
+              (itree, self.weights[itree])
             
+        if node == 0: return
         if node == None: return
+        if node.selector < 0: return
         
-        depth += 1
-        offset = "-"*depth
-                
-        if node.selector < 0:
-            name  = 'leaf'
-            value = 0
+        name = self.varnames[node.selector]
+        value= node.cutValue
+        if which == 0:
+            which = 'root      '
+        elif which < 0:
+            which = '  left    '
         else:
-            name  = varnames[node.selector]                    
-            value = node.cutValue
+            which = '    right '            
+        print "%10d %10s %10s\t%10.2f" % (depth, which, name, value)
+        depth += 1
+        self.printTree(itree, depth, -1, node.left)
+        self.printTree(itree, depth,  1, node.right)
 
-        print "%4d %-s %-6s %-10s %6.2f %6.3f (%4.1f, %4.1f, %4.1f, %4.1f)" % \
-          (depth, offset, which, name, value, node.purity,
-           node.xmin, node.xmax, node.ymin, node.ymax)
-                
-        if node.selector < 0:
+    def ranking(self, ntrees=-1):
+        self.countname = {}
+        if ntrees <= 0:
+            maxtrees = len(self.forest)
+        else:
+            maxtrees = min(ntrees, len(self.forest))
+        for itree in xrange(maxtrees):
+            self.__rank(itree)
+
+        recs = []
+        total = 0.0
+        for (key, value) in self.countname.items():
+            total += value
+            recs.append([value, key])
+        for index, (value, key) in enumerate(recs):
+            recs[index] = (recs[index][0]/total, recs[index][1])
+        recs.sort()
+        recs.reverse()
+        return recs
+            
+    def __rank(self, itree, depth=0, which=0, node=None):
+        if which == 0:
+            node = self.forest[itree]
+            
+        if (node == 0) or (node == None) or (node.selector < 0):
             return
         
-        node.left.xmin  = min(node.xmin, node.xmax)
-        node.left.xmax  = max(node.xmin, node.xmax)
-        node.left.ymin  = min(node.ymin, node.ymax)
-        node.left.ymax  = max(node.ymin, node.ymax)
-        
-        node.right.xmin = min(node.xmin, node.xmax)
-        node.right.xmax = max(node.xmin, node.xmax)
-        node.right.ymin = min(node.ymin, node.ymax)
-        node.right.ymax = max(node.ymin, node.ymax)
-        
-        if node.selector == 0:
-            node.left.xmax  = value
-            node.right.xmin = value
-        else:
-            node.left.ymax  = value
-            node.right.ymin = value            
-        
-        self.printTree(itree, varnames, depth, 'left',  node.left)
-        
-        self.printTree(itree, varnames, depth, 'right', node.right)
+        name = self.varnames[node.selector]
+        if not self.countname.has_key(name):
+            self.countname[name] = 0
+        self.countname[name] += 1.0
+        depth += 1
+        self.__rank(itree, depth, -1, node.left)
+        self.__rank(itree, depth,  1, node.right)
 
+        
     def weight(self, itree):
         if itree >=0 and itree < len(self.weights):
             return self.weights[itree]
         else:
             return -1
-
-    def normWeights(self, norm=True):
-        self.normweights = norm
         
-    def sumWeight(self):
+    def summedWeights(self):
         return sum(self.weights)
     
     def setValueType(self, which=0):
         self.valueType = which
+        
+    # plot only valid for 2-D applications
+    def plot2d(self, itree, hname, xtitle, ytitle,
+             xmin, xmax, ymin, ymax, useValue=False,
+             node=None):
+        
+        if node == None:
+            hname = "%s%5.5d" % (hname, itree)
+            self.hplot = TH2Poly(hname, "", xmin, xmax, ymin, ymax)
+            self.hplot.GetXaxis().SetTitle(xtitle)
+            self.hplot.GetYaxis().SetTitle(ytitle)
+            self.hplot.GetYaxis().SetTitleOffset(1.6)
+            self.hplot.SetNdivisions(505, "X")
+            self.hplot.SetNdivisions(505, "Y")
+            self.binNumber = 0
+            node = self.forest[itree]
 
-    def __get2dbins(self, node, depth=0, which='ROOT'):
-        if depth == 0:
-            self.bins = []
-        
-        depth += 1
-        offset = "-"*depth
+        if node == None:
+            print "*** node is None - shouldn't happen ***"
+            sys.exit(0)
 
-        value = node.cutValue            
-        if node.selector < 0:
-            name  = 'LEAF'
-            value = 0
-        elif node.selector == 0:
-            name = 'x-cut'
-        else:
-            name = 'y-cut'
+        if self.hplot == None:
+            print "*** hplot is None - shouldn't happen ***"
+            sys.exit(0)
 
-        ## print "%4d %-s %-6s %-10s %6.2f %6.3f (%4.1f, %4.1f, %4.1f, %4.1f)" % \
-        ##   (depth, offset, which, name, value, node.purity,
-        ##    node.xmin, node.xmax, node.ymin, node.ymax)
-                
-        if node.selector < 0:
-            self.bins.append(node)
-            return
-        
-        node.left.xmin  = min(node.xmin, node.xmax)
-        node.left.xmax  = max(node.xmin, node.xmax)
-        node.left.ymin  = min(node.ymin, node.ymax)
-        node.left.ymax  = max(node.ymin, node.ymax)
-        
-        node.right.xmin = min(node.xmin, node.xmax)
-        node.right.xmax = max(node.xmin, node.xmax)
-        node.right.ymin = min(node.ymin, node.ymax)
-        node.right.ymax = max(node.ymin, node.ymax)
-        
-        if node.selector == 0:
-            node.left.xmax  = value
-            node.right.xmin = value
-        else:
-            node.left.ymax  = value
-            node.right.ymin = value            
-
-        self.__get2dbins(node.left,   depth, 'left')
-        self.__get2dbins(node.right,  depth, 'right')
-        
-        
-    def plot2d(self, itree, hname, xtitle, ytitle, xmin, xmax, ymin, ymax):
-        node = self.forest[itree]
-        node.xmin = xmin
-        node.xmax = xmax
-        node.ymin = ymin
-        node.ymax = ymax
-        self.__get2dbins(node)
-        
-        self.hplot = TH2Poly(hname, "", xmin, xmax, ymin, ymax)
-        self.hplot.GetXaxis().SetTitle(xtitle)
-        self.hplot.GetYaxis().SetTitle(ytitle)
-        self.hplot.GetYaxis().SetTitleOffset(1.6)
-        self.hplot.SetNdivisions(505, "X")
-        self.hplot.SetNdivisions(505, "Y")
-        if self.valueType == 0:
-            self.hplot.SetMinimum(0)
-            self.hplot.SetMaximum(1)
-        else:
-            self.hplot.SetMinimum(-1)
-            self.hplot.SetMaximum( 1)
-        self.hplotclone = self.hplot.Clone('%sclone' % hname)
-
-        for ii, node in enumerate(self.bins):
-            self.hplotclone.AddBin(node.xmin, node.ymin, node.xmax, node.ymax)
-            ibin = self.hplot.AddBin(node.xmin, node.ymin, node.xmax, node.ymax)
-            if self.valueType == 0:
-                w = node.purity
-            else:
-                w = node.nodeType                        
-            self.hplot.SetBinContent(ibin, w)
+        if node == 0:
+            return self.hplot
+ 
+        self.binNumber += 1
+        if self.binNumber > 20:
+            print "*** lost in trees ***"
+            sys.exit(0)
             
-        return (self.hplot, self.hplotclone)
+        if useValue:
+            weight = node.nodeType        
+        else:
+            weight =-self.binNumber
+            
+        self.hplot.AddBin(xmin, ymin, xmax, ymax)            
+        self.hplot.SetBinContent(self.binNumber, weight)
+
+        if node.selector < 0:
+            return self.hplot
+        
+        value = node.cutValue
+        if node.selector == 0:
+            # left
+            xmax1= xmax
+            xmax = value
+            self.plot2d(itree, hname, xtitle, ytitle,
+                        xmin, xmax, ymin, ymax, useValue, node.left)
+            # right
+            xmax = xmax1
+            xmin = value
+            self.plot2d(itree, hname, xtitle, ytitle,
+                        xmin, xmax, ymin, ymax, useValue, node.right)
+        else:
+            # left
+            ymax1 = ymax
+            ymax = value
+            self.plot2d(itree, hname, xtitle, ytitle,
+                        xmin, xmax, ymin, ymax, useValue, node.left)
+            # right
+            ymax = ymax1
+            ymin = value
+            self.plot2d(itree, hname, xtitle, ytitle,
+                        xmin, xmax, ymin, ymax, useValue, node.right)
+        return self.hplot
+
