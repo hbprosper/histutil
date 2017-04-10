@@ -4,6 +4,7 @@
 # Description: create a more convenient packaging of TMVA MLP/BDTs
 #              results.
 # Created: 02-Feb-2017 HBP
+# Updated: 10-Apr-2017 HBP add ranking
 #------------------------------------------------------------------
 import os, sys, re
 from string import find, replace
@@ -27,6 +28,7 @@ getMvaValue__Imp   = re.compile('::GetMvaValue__[(].*inputValues')
 getMvaValueCall = re.compile('retval = GetMvaValue__.*')
 getPreamble  = re.compile('::GetMvaValue__.*[^+]+', re.M)
 getPublic    = re.compile('class .*public IClassifierReader.*[^:]+:', re.M)
+getInputVars = re.compile('const char. inputVars.*[^}]+\}\;', re.M)
 #------------------------------------------------------------------
 def main():
     argv = sys.argv[1:]
@@ -98,14 +100,7 @@ def main():
           '  }\n\n' % x
         xnew += \
           '  std::vector<std::string> varnames;\n'\
-          '  std::vector<std::string> variables()\n'\
-          '  {\n'\
-          '    varnames.clear();\n'
-        for v in inputvars:
-          xnew += '    varnames.push_back("%s");\n' % v
-        xnew += \
-          '    return varnames;\n'\
-          '  }\n'
+          '  std::vector<std::string> variables() { return varnames; }\n'
 
         xnew += '''
   std::vector<std::pair<double, std::string> > ranking(int ntrees=-1)
@@ -114,12 +109,12 @@ def main():
     maxtrees = maxtrees > fForest.size() ? fForest.size() : maxtrees;
 
     std::map<std::string, double> countmap;
-    for(int itree=0; itree < maxtrees; itree++)
-      __rank(itree, countmap);
+    for(size_t c=0; c < varnames.size(); c++) countmap[varnames[c]] = 0;
 
-    std::vector<std::pair<double, std::string> > countname;
+    for(int itree=0; itree < maxtrees; itree++) __rank(itree, countmap);
+
+    std::vector<std::pair<double, std::string> > countname(varnames.size());
     double total = 0;
-    variables();
     for(size_t c=0; c < varnames.size(); c++)
       {
 	countname[c].first  = countmap[varnames[c]];
@@ -129,13 +124,12 @@ def main():
     std::sort(countname.begin(), countname.end());
     std::reverse(countname.begin(), countname.end());
     
-    for(size_t c=0; c < countname.size(); c++)
-      countname[c].first /= total;
+    for(size_t c=0; c < countname.size(); c++) countname[c].first /= total;
     return countname;
   }
   
   void __rank(int itree,
-	      std::map<std::string, double> countmap,
+	      std::map<std::string, double>& countmap,
 	      int depth=0,
 	      int which=0,
 	      BDTNode* node=0)
@@ -147,8 +141,8 @@ def main():
     if ( node->GetSelector() < 0 ) return;
 
     std::string name = varnames[node->GetSelector()];
-    if ( countmap.find(name) == countmap.end() ) countmap[name] = 0.0;
     countmap[name] += 1.0;
+
     depth++;
     __rank(itree, countmap, depth, -1, node->GetLeft());
     __rank(itree, countmap, depth,  1, node->GetRight());
@@ -167,26 +161,28 @@ def main():
     if ( which == 0 )
       {
         node = fForest[itree];
-        printf(record, "tree number: %d\tweight: %10.3e", 
-               itree, fBoostWeights[itree]);
+        sprintf(record, "tree number: %d\tweight: %10.3e", 
+                itree, fBoostWeights[itree]);
         os << record << std::endl;
-	variables(); // fill vars
       }
     if ( depth > 100 ) return;
     if ( node == 0 ) return;
     if ( node->GetSelector() < 0 ) return;
+
     std::string name = varnames[node->GetSelector()];
     double value = node->GetCutValue();
     std::string nodedir("");
     if      ( which == 0 )
-      nodedir = "root      ";
+      nodedir = "root       ";
     else if ( which <  0 ) 
-      nodedir = "  left    ";
+      nodedir = " <-left    ";
     else
-      nodedir = "    right ";
-    printf(record, "%10d %10s %10s\t%10.3f", depth,
+      nodedir = "   right-> ";
+
+    sprintf(record, "%10d %10s %10s\t%10.3f", depth,
 	   nodedir.c_str(), name.c_str(), value);
     os << record << std::endl;
+
     depth += 1;
     printTree(itree, os, depth, -1, node->GetLeft());
     printTree(itree, os, depth,  1, node->GetRight());    
@@ -204,14 +200,9 @@ def main():
     else:
         x    = getPublic.findall(code)[0]
         xnew = '%s\n' \
-          '   std::vector<std::string> variables()\n'\
-          '   {\n'\
-          '     std::vector<std::string> varnames;\n' % x
-        for v in inputvars:
-          xnew += '     varnames.push_back("%s");\n' % v
-        xnew += \
-          '     return varnames;\n'\
-          '   }\n'
+          '  std::vector<std::string> varnames;\n'\
+          '  std::vector<std::string> variables() { return varnames; }\n' % x
+          
         code = replace(code, x, xnew)
 
         ntrees0 = ''
@@ -230,6 +221,19 @@ def main():
                           '  int    GetSelector() const '\
                               '{ return fSelector; }\n',
                               code)
+
+    recs = getInputVars.findall(code)
+    if len(recs) == 0:
+        sys.exit('** problem modifying code')
+    x = recs[0]
+    xnew  = '%s\n' % x
+    nvars = len(inputvars)
+    xnew += '''
+      varnames.clear();
+      varnames.resize(%d);
+      std::copy(inputVars, inputVars+%d, varnames.begin());
+    ''' % (nvars, nvars)
+    code = getInputVars.sub(xnew, code)
 
     # --------------------------------------------------------------------------
     # write C++ function
@@ -335,6 +339,8 @@ struct %(funcname)s : public __%(funcname)s::%(classname)s
 #pragma link off all globals;
 #pragma link off all classes;
 #pragma link off all functions;
+#pragma link C++ class std::pair<double, std::string>+;
+#pragma link C++ class std::vector<std::pair<double, std::string> >+;
 #pragma link C++ class __%(funcname)s::%(classname)s+;
 #pragma link C++ class %(funcname)s+;
 #endif
@@ -379,4 +385,7 @@ to build lib%(funcname)s.so
 ''' % names
     
 #-------------------------------------------------------------------------------
-main()
+try:
+    main()
+except KeyboardInterrupt:
+    print "\n\nciao!\n"
