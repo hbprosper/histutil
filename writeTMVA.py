@@ -19,6 +19,7 @@ getvars      = re.compile('(?<= ").*?(?=",)|(?<= ").*?(?=" )')
 getclass     = re.compile('(?<=class )Read.*(?= : public)')
 geticlass    = re.compile('class IClassifierReader')
 getinclude   = re.compile('#include [<]iostream[>]')
+getvirtual   = re.compile('virtual .BDTNode\(\);')
 getMvaValueDec     = re.compile('double GetMvaValue[(].*inputValues')
 getMvaValue__Dec   = re.compile('double GetMvaValue__[(].*inputValues')
 getMvaValueImp     = re.compile('::GetMvaValue[(].*inputValues')
@@ -86,24 +87,111 @@ def main():
 
         x    = getPublic.findall(code)[0]
         xnew = '%s\n'\
-          '   size_t size() { return fForest.size(); }\n\n'\
-          '   double weight(int itree) { return fBoostWeights[itree]; }\n\n'\
-          '   double summedWeights()\n'\
-          '   {\n'\
-          '     double norm = 0;\n'\
-          '     for (size_t itree=0; itree<fForest.size(); itree++)\n'\
-          '        norm += fBoostWeights[itree];\n'\
-          '     return norm;\n'\
-          '   }\n\n' % x
+          '  size_t size() { return fForest.size(); }\n\n'\
+          '  double weight(int itree) { return fBoostWeights[itree]; }\n\n'\
+          '  double summedWeights()\n'\
+          '  {\n'\
+          '    double norm = 0;\n'\
+          '    for (size_t itree=0; itree<fForest.size(); itree++)\n'\
+          '       norm += fBoostWeights[itree];\n'\
+          '    return norm;\n'\
+          '  }\n\n' % x
         xnew += \
-          '   std::vector<std::string> variables()\n'\
-          '   {\n'\
-          '     std::vector<std::string> vars;\n'
+          '  std::vector<std::string> varnames;\n'\
+          '  std::vector<std::string> variables()\n'\
+          '  {\n'\
+          '    varnames.clear();\n'
         for v in inputvars:
-          xnew += '     vars.push_back("%s");\n' % v
+          xnew += '    varnames.push_back("%s");\n' % v
         xnew += \
-          '     return vars;\n'\
-          '   }\n'
+          '    return varnames;\n'\
+          '  }\n'
+
+        xnew += '''
+  std::vector<std::pair<double, std::string> > ranking(int ntrees=-1)
+  {
+    size_t maxtrees = ntrees > 0 ? (size_t)ntrees : fForest.size();
+    maxtrees = maxtrees > fForest.size() ? fForest.size() : maxtrees;
+
+    std::map<std::string, double> countmap;
+    for(int itree=0; itree < maxtrees; itree++)
+      __rank(itree, countmap);
+
+    std::vector<std::pair<double, std::string> > countname;
+    double total = 0;
+    variables();
+    for(size_t c=0; c < varnames.size(); c++)
+      {
+	countname[c].first  = countmap[varnames[c]];
+	countname[c].second = varnames[c];
+	total += countname[c].first;
+      }
+    std::sort(countname.begin(), countname.end());
+    std::reverse(countname.begin(), countname.end());
+    
+    for(size_t c=0; c < countname.size(); c++)
+      countname[c].first /= total;
+    return countname;
+  }
+  
+  void __rank(int itree,
+	      std::map<std::string, double> countmap,
+	      int depth=0,
+	      int which=0,
+	      BDTNode* node=0)
+  {
+    if ( which == 0 )
+      node = fForest[itree];
+    
+    if ( node == 0 ) return;
+    if ( node->GetSelector() < 0 ) return;
+
+    std::string name = varnames[node->GetSelector()];
+    if ( countmap.find(name) == countmap.end() ) countmap[name] = 0.0;
+    countmap[name] += 1.0;
+    depth++;
+    __rank(itree, countmap, depth, -1, node->GetLeft());
+    __rank(itree, countmap, depth,  1, node->GetRight());
+  }
+
+  void printTree(int itree, 
+		 int depth=0, int which=0, BDTNode* node=0)
+  {
+    printTree(itree, std::cout);
+  }
+  
+  void printTree(int itree, std::ostream& os, 
+		 int depth=0, int which=0, BDTNode* node=0)
+  {
+    char record[80];
+    if ( which == 0 )
+      {
+        node = fForest[itree];
+        printf(record, "tree number: %d\tweight: %10.3e", 
+               itree, fBoostWeights[itree]);
+        os << record << std::endl;
+	variables(); // fill vars
+      }
+    if ( depth > 100 ) return;
+    if ( node == 0 ) return;
+    if ( node->GetSelector() < 0 ) return;
+    std::string name = varnames[node->GetSelector()];
+    double value = node->GetCutValue();
+    std::string nodedir("");
+    if      ( which == 0 )
+      nodedir = "root      ";
+    else if ( which <  0 ) 
+      nodedir = "  left    ";
+    else
+      nodedir = "    right ";
+    printf(record, "%10d %10s %10s\t%10.3f", depth,
+	   nodedir.c_str(), name.c_str(), value);
+    os << record << std::endl;
+    depth += 1;
+    printTree(itree, os, depth, -1, node->GetLeft());
+    printTree(itree, os, depth,  1, node->GetRight());    
+  }
+  '''
         code = replace(code, x, xnew)
         
         records = getMvaValueCall.findall(code)
@@ -118,21 +206,30 @@ def main():
         xnew = '%s\n' \
           '   std::vector<std::string> variables()\n'\
           '   {\n'\
-          '     std::vector<std::string> vars;\n' % x
+          '     std::vector<std::string> varnames;\n' % x
         for v in inputvars:
-          xnew += '     vars.push_back("%s");\n' % v
+          xnew += '     varnames.push_back("%s");\n' % v
         xnew += \
-          '     return vars;\n'\
+          '     return varnames;\n'\
           '   }\n'
         code = replace(code, x, xnew)
 
         ntrees0 = ''
         ntrees  = ''
-        
+
     # enclose code in an namespace so that class is visible
     # only within the scope of this compilation unit
-    code = getinclude.sub('#include <iostream>\n\n'\
-                             'namespace __%s {' % funcname, code)
+    code = getinclude.sub('#include <iostream>\n'\
+                          '#include <map>\n'\
+                          '#include <algorithm>\n\n'\
+                          'namespace __%s {' % funcname, code)
+                          
+    code = getvirtual.sub('virtual ~BDTNode();\n\n'\
+                          '  double GetCutValue() const '\
+                              '{ return fCutValue; }\n'\
+                          '  int    GetSelector() const '\
+                              '{ return fSelector; }\n',
+                              code)
 
     # --------------------------------------------------------------------------
     # write C++ function
@@ -190,7 +287,7 @@ def main():
 //   double D = mvd(...);
 //
 // Fromm Python
-//   gSystem/Load("lib%(funcname)s.so");
+//   gSystem.Load("lib%(funcname)s.so");
 //      :    :
 //   mvd = %(funcname)s()
 //   D = mvd(...)
