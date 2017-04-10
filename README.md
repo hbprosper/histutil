@@ -9,7 +9,7 @@ Classes:
   Table
   Ntuple
   BDT
-```  
+``` 
 Functions:
 ```
   nameonly(filename)
@@ -25,4 +25,8 @@ Functions:
   mkcdf(hist, minbin=1)
   mkroc(name, hsig, hbkg, lcolor=kBlue, lwidth=2, ndivx=505, ndivy=505)
   mklegend(x, y, xw, yw)
+```
+Scripts:
+```
+	writeTMVA.py <TMVA-C++-class> <classifier-name>
 ```
