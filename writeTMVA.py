@@ -5,6 +5,7 @@
 #              results.
 # Created: 02-Feb-2017 HBP
 # Updated: 10-Apr-2017 HBP add ranking
+#          12-Apr-2017 HBP improve tree-printing
 #------------------------------------------------------------------
 import os, sys, re
 from string import find, replace
@@ -167,20 +168,37 @@ def main():
       }
     if ( depth > 100 ) return;
     if ( node == 0 ) return;
-    if ( node->GetSelector() < 0 ) return;
 
-    std::string name = varnames[node->GetSelector()];
+    int selector = node->GetSelector();
+    std::string name("LEAF ");
+    if ( selector > -1 )
+      name = varnames[node->GetSelector()];
     double value = node->GetCutValue();
+
     std::string nodedir("");
     if      ( which == 0 )
-      nodedir = "root       ";
+      nodedir = "root ";
     else if ( which <  0 ) 
-      nodedir = " <-left    ";
+      nodedir = "left ";
     else
-      nodedir = "   right-> ";
+      nodedir = "right";
 
-    sprintf(record, "%10d %10s %10s\t%10.3f", depth,
-	   nodedir.c_str(), name.c_str(), value);
+    std::string nodetype("");
+    if ( node->GetNodeType() < 0 )
+      {
+	nodetype = "B";
+	value = node->GetPurity();
+      }
+    else if ( node->GetNodeType() > 0 )
+      {
+	nodetype = "S";
+	value = node->GetPurity();
+      }
+      
+    std::string depthstr("  ");
+    for(int c=0; c < depth; c++) depthstr += "   ";
+    sprintf(record, "%s %10s %10s\t%10.3f %s", depthstr.c_str(),
+	    nodedir.c_str(), name.c_str(), value, nodetype.c_str());
     os << record << std::endl;
 
     depth += 1;
