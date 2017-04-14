@@ -1294,24 +1294,40 @@ class BDT:
             node = self.forest[itree]
             print "tree number %d\tweight = %10.3e" % \
               (itree, self.weights[itree])
-            
-        if node == 0: return
+
+        if depth > 100:  return
+        if node == 0:    return
         if node == None: return
-        if node.selector < 0: return
-        
-        name = self.varnames[node.selector]
-        value= node.cutValue
-        if which == 0:
-            which = 'root      '
-        elif which < 0:
-            which = '  left    '
+            
+        selector = node.selector
+        if selector > -1:
+            name = self.varnames[node.selector]
         else:
-            which = '    right '            
-        print "%10d %10s %10s\t%10.2f" % (depth, which, name, value)
+            name = 'LEAF '
+
+        value = node.cutValue
+        if which == 0:
+            nodedir = 'root '
+        elif which < 0:
+            nodedir = 'left '
+        else:
+            nodedir = 'right'
+
+        if node.getNodeType() < 0:
+            nodetype = 'B'
+            value = node.getPurity()
+        elif node.getNodeType() > 0:
+            nodetype = 'S'
+            value = node.getPurity()
+
+        depthstr = "  "*(depth+1)
+        print "%s %10s %10s\t%10.2f" % (depthstr, which, name, value)
+        
         depth += 1
         self.printTree(itree, depth, -1, node.left)
         self.printTree(itree, depth,  1, node.right)
 
+        
     def ranking(self, ntrees=-1):
         self.countname = {}
         if ntrees <= 0:

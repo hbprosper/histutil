@@ -382,14 +382,16 @@ LIBS	:= $(shell root-config --libs)
 lib%(funcname)s.so:	%(funcname)s_dictionary.cxx
 \t$(AT)echo "building library $@"
 \t$(AT)g++ -shared -o $@  $(LDFLAGS) $(LIBS) $(CXXFLAGS) $^
-\t$(AT)rm -rf %(funcname)s_dictionary.cxx
 
 %(funcname)s_dictionary.cxx: %(funcname)s.cc %(funcname)s_linkdef.h
 \t$(AT)echo "building dictionary file $@"
 \t$(AT)rootcint -f $@ -c $(CXXFLAGS) $+
 
+tidy:
+\trm -rf %(funcname)s_dictionary.cxx %(funcname)s_link* %(funcname)s_make*
+
 clean:
-	rm -rf %(funcname)s_dictionary.cxx lib%(funcname)s.so %(funcname)s*.pcm
+\trm -rf %(funcname)s_dictionary.cxx lib%(funcname)s.so %(funcname)s*.pcm
 ''' % names
     outfilename = '%s_makefile' % funcname
     print '==> creating file: %s' % outfilename    
