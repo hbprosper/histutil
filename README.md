@@ -29,4 +29,5 @@ Functions:
 Scripts:
 ```
 	writeTMVA.py <TMVA-C++-class> <classifier-name>
+	makeTstruct.py variables-file [treename=Analysis]
 ```
