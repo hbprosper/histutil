@@ -387,11 +387,11 @@ lib%(funcname)s.so:	%(funcname)s_dictionary.cxx
 \t$(AT)echo "building dictionary file $@"
 \t$(AT)rootcint -f $@ -c $(CXXFLAGS) $+
 
-tidy:
-\trm -rf %(funcname)s_dictionary.cxx %(funcname)s_link* %(funcname)s_make*
-
 clean:
 \trm -rf %(funcname)s_dictionary.cxx lib%(funcname)s.so %(funcname)s*.pcm
+
+nuke:
+\trm -rf %(funcname)s_* %(funcname)s.cc
 ''' % names
     outfilename = '%s_makefile' % funcname
     print '==> creating file: %s' % outfilename    
