@@ -375,7 +375,7 @@ struct %(funcname)s : public __%(funcname)s::%(classname)s
 # created: %(time)s by writeTMVA.py
 # ------------------------------------------------------------------------------
 AT      := @
-CXXFLAGS:= $(shell root-config --cflags)
+CXXFLAGS:= $(shell root-config --cflags) -fPIC
 LDFLAGS	:= $(shell root-config --ldflags)
 LIBS	:= $(shell root-config --libs)
 
