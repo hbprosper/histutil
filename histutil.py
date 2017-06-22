@@ -921,7 +921,8 @@ class Ntuple:
     # self points to the memory allocated for the object
 
     def __init__(self, filename, treename, firstrow=0, nrows=None):
-
+        from string import find
+        
         # cache inputs
         self.status = 0
 
@@ -1022,7 +1023,11 @@ class Ntuple:
             # get leaf type (int, float, double, etc.)
             tname = leaf.GetTypeName()
 
-            #check for leaf counter
+            if find(tname, 'vector') > -1:
+                #print '**skipping %s\t%s for now' % (tname, name)
+                continue
+            
+            # check for leaf counter
             flag = Long(0)
             leafcounter = leaf.GetLeafCounter(flag)
             if leafcounter:
@@ -1072,7 +1077,11 @@ class Ntuple:
                 bufferName = "S%d_%d" % (self.postfix, bufferCount)
                 rec = "struct %s {" % bufferName
 
-            if maxcount == 1:
+            if find(tname, 'vector') > -1:
+                # special handling for vectors
+                continue
+            
+            elif maxcount == 1:
                 rec += "%s %s;" % (tname, name)
             else:				
                 rec += "%s %s[%d];" % (tname, name, maxcount)
@@ -1109,8 +1118,11 @@ class Ntuple:
 
     # destructor
     def __del__(self):
-            pass
+        pass
 
+    def close(self):
+        pass
+    
     def size(self):
         return int(self.entries)
 
