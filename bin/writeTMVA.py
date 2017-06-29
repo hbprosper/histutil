@@ -6,9 +6,12 @@
 # Created: 02-Feb-2017 HBP
 # Updated: 10-Apr-2017 HBP add ranking
 #          12-Apr-2017 HBP improve tree-printing
+#          28-Jun-2017 HBP extend to allow compilation and linking
+#                      of multiple classifiers into a single shared
+#                      library.
 #------------------------------------------------------------------
 import os, sys, re
-from string import find, replace
+from string import find, replace, split, strip
 from time import ctime
 from ROOT import *
 #------------------------------------------------------------------
@@ -26,31 +29,14 @@ getMvaValueDec     = re.compile('double GetMvaValue[(].*inputValues')
 getMvaValue__Dec   = re.compile('double GetMvaValue__[(].*inputValues')
 getMvaValueImp     = re.compile('::GetMvaValue[(].*inputValues')
 getMvaValue__Imp   = re.compile('::GetMvaValue__[(].*inputValues')
-getMvaValueCall = re.compile('retval = GetMvaValue__.*')
+getMvaValueCall    = re.compile('retval = GetMvaValue__.*')
 getPreamble  = re.compile('::GetMvaValue__.*[^+]+', re.M)
 getPublic    = re.compile('class .*public IClassifierReader.*[^:]+:', re.M)
 getInputVars = re.compile('const char. inputVars.*[^}]+\}\;', re.M)
 #------------------------------------------------------------------
-def main():
-    argv = sys.argv[1:]
-    argc = len(argv)
-    if argc < 1:
-        sys.exit('''
-    Usage:
-        ./writeTMVA.py C-filename [output-C++-filename]
+def writeCPP(filename, cname):
 
-    Example:
-
-        ./writeTMVA.py weights/HATS_MLP.class.C  melaMLP
-        ''')
-
-    filename = argv[0]
-    if argc > 1:
-        outfilename = '%s.cc' % nameonly(argv[1])
-    else:
-        outfilename = '%s.cc' % nameonly(nameonly(filename))
-    
-    funcname = nameonly(outfilename)
+    funcname = cname
     
     # read code
     code = open(filename).read()
@@ -112,7 +98,7 @@ def main():
     std::map<std::string, double> countmap;
     for(size_t c=0; c < varnames.size(); c++) countmap[varnames[c]] = 0;
 
-    for(int itree=0; itree < maxtrees; itree++) __rank(itree, countmap);
+    for(size_t itree=0; itree < maxtrees; itree++) __rank(itree, countmap);
 
     std::vector<std::pair<double, std::string> > countname(varnames.size());
     double total = 0;
@@ -152,7 +138,7 @@ def main():
   void printTree(int itree, 
 		 int depth=0, int which=0, BDTNode* node=0)
   {
-    printTree(itree, std::cout);
+    printTree(itree, std::cout, depth, which, node);
   }
   
   void printTree(int itree, std::ostream& os, 
@@ -299,8 +285,8 @@ def main():
     record = '''// -------------------------------------------------------------------------
 // double mvd(%(hargs)s);
 //      :    :
-// To build lib%(funcname)s.so do
-//   make -f %(funcname)s_makefile
+// To build libmvd.so do
+//   make
 //
 // To call from C++
 //   gSystem->Load("lib%(funcname)s.so");
@@ -345,13 +331,27 @@ struct %(funcname)s : public __%(funcname)s::%(classname)s
   }
 };
     ''' % names
-    print
+
+    outfilename = 'src/%s.cc' % funcname
     print '==> creating file: %s' % outfilename
     open(outfilename, 'w').write(record)
+    return names
 
+def writeLinkdefAndMakefile(records, nameslist):
     # --------------------------------------------------------------------------
     # write linkdef
     # --------------------------------------------------------------------------
+    functemplate = '''
+#pragma link C++ class __%(funcname)s::%(classname)s+;
+#pragma link C++ class %(funcname)s+;
+'''
+    srcs = ''
+    rec  = ''
+    for names in nameslist:
+       rec  += functemplate % names
+       srcs += '\t$(srcdir)/%(funcname)s.cc \\\n' % names
+    srcs = srcs[:-2]
+    
     record = '''
 #ifdef __CINT__
 #pragma link off all globals;
@@ -359,51 +359,154 @@ struct %(funcname)s : public __%(funcname)s::%(classname)s
 #pragma link off all functions;
 #pragma link C++ class std::pair<double, std::string>+;
 #pragma link C++ class std::vector<std::pair<double, std::string> >+;
-#pragma link C++ class __%(funcname)s::%(classname)s+;
-#pragma link C++ class %(funcname)s+;
+%s
 #endif
-''' % names
-    outfilename = '%s_linkdef.h' % funcname
+''' % rec
+    
+    outfilename = 'src/linkdef.h'
     print '==> creating file: %s' % outfilename    
     open(outfilename, 'w').write(record)
 
     # --------------------------------------------------------------------------
     # write makefile
     # --------------------------------------------------------------------------
+
+    names = nameslist[0]
+    names['srcs'] = srcs
+    names['percent'] = '%'
+    
     record = '''# ------------------------------------------------------------------------------
-# build lib%(funcname)s.so
+# build shared library
 # created: %(time)s by writeTMVA.py
 # ------------------------------------------------------------------------------
-AT      := @
-CXXFLAGS:= $(shell root-config --cflags) -fPIC
-LDFLAGS	:= $(shell root-config --ldflags)
+ifndef ROOTSYS
+	$(error *** Please set up Root)
+endif
+ROOFIT	:= $(ROOTSYS)
+# ----------------------------------------------------------------------------
+NAME	:= mvd
+srcdir	:= src
+libdir	:= lib
+
+# create lib directory if one does not exist
+$(shell mkdir -p lib)
+
+# get lists of sources
+
+SRCS:=\
+%(srcs)s
+
+CINTSRCS:= $(wildcard $(srcdir)/*_dict.cc)
+
+OTHERSRCS:= $(filter-out $(CINTSRCS) $(SRCS),$(wildcard $(srcdir)/*.cc))
+
+# list of dictionaries to be created
+DICTIONARIES:= $(SRCS:.cc=_dict.cc)
+
+# get list of objects
+OBJECTS		:= $(SRCS:.cc=.o) $(OTHERSRCS:.cc=.o) $(DICTIONARIES:.cc=.o)
+# ----------------------------------------------------------------------------
+ROOTCINT	:= rootcint
+# check for clang++, otherwise use g++
+COMPILER	:= $(shell which clang++)
+ifneq ($(COMPILER),)
+\tCXX	:= clang++
+\tLD	:= clang++
+else
+\tCXX	:= g++
+\tLD	:= g++
+endif
+
+CPPFLAGS	:= -I.
+CXXFLAGS	:= -O2 -Wall -fPIC -g -ansi -Wshadow -Wextra \
+$(shell root-config --cflags)
+LDFLAGS		:= -g
+# ----------------------------------------------------------------------------
+# which operating system?
+OS := $(shell uname -s)
+ifeq ($(OS),Darwin)
+\tLDFLAGS += -dynamiclib
+\tLDEXT	:= .so
+else
+\tLDFLAGS	+= -shared
+\tLDEXT	:= .so
+endif
+LDFLAGS += $(shell root-config --ldflags)
+
+# libraries
 LIBS	:= $(shell root-config --libs)
+LIBRARY	:= $(libdir)/lib$(NAME)$(LDEXT)
+# ----------------------------------------------------------------------------
+all: $(LIBRARY)
 
-lib%(funcname)s.so:	%(funcname)s_dictionary.cxx
-\t$(AT)echo "building library $@"
-\t$(AT)g++ -shared -o $@  $(LDFLAGS) $(LIBS) $(CXXFLAGS) $^
+$(LIBRARY)\t: $(OBJECTS)
+\t@echo ""
+\t@echo "=> Linking shared library $@"
+\t$(LD) $(LDFLAGS) $^ $(LIBS)  -o $@
 
-%(funcname)s_dictionary.cxx: %(funcname)s.cc %(funcname)s_linkdef.h
-\t$(AT)echo "building dictionary file $@"
-\t$(AT)rootcint -f $@ -c $(CXXFLAGS) $+
+$(OBJECTS)\t: %(percent)s.o	: %(percent)s.cc
+\t@echo ""
+\t@echo "=> Compiling $<"
+\t$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
+
+$(DICTIONARIES)	: $(srcdir)/%(percent)s_dict.cc	: $(srcdir)/%(percent)s.cc $(srcdir)/linkdef.h
+\t@echo ""
+\t@echo "=> Building dictionary $@"
+\t$(ROOTCINT) -f $@ -c $(CPPFLAGS) $+
+\tfind $(srcdir) -name "*.pcm" -exec mv {} $(libdir) \;
+
+tidy:
+\trm -rf $(srcdir)/*_dict*.* $(srcdir)/*.o 
 
 clean:
-\trm -rf %(funcname)s_dictionary.cxx lib%(funcname)s.so %(funcname)s*.pcm
-
-nuke:
-\trm -rf %(funcname)s_* %(funcname)s.cc
-''' % names
-    outfilename = '%s_makefile' % funcname
-    print '==> creating file: %s' % outfilename    
-    open(outfilename, 'w').write(record)
-
-    print '''
-Do
-   make -f %(funcname)s_makefile
-
-to build lib%(funcname)s.so
+\trm -rf $(libdir)/* $(srcdir)/*_dict*.* $(srcdir)/*.o 
 ''' % names
     
+    outfilename = 'Makefile'
+    print '==> creating file: %s' % outfilename    
+    open(outfilename, 'w').write(record)
+#-------------------------------------------------------------------------------
+def main():
+    argv = sys.argv[1:]
+    argc = len(argv)
+    if argc < 1:
+        sys.exit('''
+    Usage:
+        writeTMVA.py C-filename [classifier name]
+    or 
+        writeTMVA.py filelist
+
+    Example 1:
+
+        writeTMVA.py weights/TMVAClassification_BDT.class.C  BDTM1000
+
+    Example 2:
+        writeTMVA.py filelist.txt
+        ''')
+
+    # we have either a .class.C file or a filelist
+    filename = argv[0]
+    isclassfile = filename[-8:] == '.class.C'
+
+    records = []
+    if isclassfile:
+        if argc > 1:
+            cname = nameonly(argv[1])
+        else:
+            cname = nameonly(nameonly(filename))
+        records.append((filename, cname))
+    else:
+       records = map(split,
+                         filter(lambda x: x != '',
+                                    map(strip, open(filename).readlines())))
+
+    # create enhanced TMVA C++ files
+    os.system('mkdir -p src')
+    nameslist = []
+    for filename, cname in records:
+        nameslist.append( writeCPP(filename, cname) )
+
+    writeLinkdefAndMakefile(records, nameslist)
 #-------------------------------------------------------------------------------
 try:
     main()
