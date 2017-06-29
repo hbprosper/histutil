@@ -34,7 +34,7 @@ getPreamble  = re.compile('::GetMvaValue__.*[^+]+', re.M)
 getPublic    = re.compile('class .*public IClassifierReader.*[^:]+:', re.M)
 getInputVars = re.compile('const char. inputVars.*[^}]+\}\;', re.M)
 #------------------------------------------------------------------
-def writeCPP(filename, cname):
+def writeCPP(filename, cname, libname='mvd'):
 
     funcname = cname
     
@@ -104,9 +104,9 @@ def writeCPP(filename, cname):
     double total = 0;
     for(size_t c=0; c < varnames.size(); c++)
       {
-	countname[c].first  = countmap[varnames[c]];
-	countname[c].second = varnames[c];
-	total += countname[c].first;
+        countname[c].first  = countmap[varnames[c]];
+        countname[c].second = varnames[c];
+        total += countname[c].first;
       }
     std::sort(countname.begin(), countname.end());
     std::reverse(countname.begin(), countname.end());
@@ -135,14 +135,18 @@ def writeCPP(filename, cname):
     __rank(itree, countmap, depth,  1, node->GetRight());
   }
 
-  void printTree(int itree, 
-		 int depth=0, int which=0, BDTNode* node=0)
+  void printTree(int itree)
   {
-    printTree(itree, std::cout, depth, which, node);
+    __printTree(itree, std::cout);
   }
-  
-  void printTree(int itree, std::ostream& os, 
-		 int depth=0, int which=0, BDTNode* node=0)
+
+  void printTree(int itree, std::ostream& os) 
+  {
+    __printTree(itree, os);
+  }
+		 
+   void __printTree(int itree, std::ostream& os, 
+		           int depth=0, int which=0, BDTNode* node=0)
   {
     char record[80];
     if ( which == 0 )
@@ -188,8 +192,8 @@ def writeCPP(filename, cname):
     os << record << std::endl;
 
     depth += 1;
-    printTree(itree, os, depth, -1, node->GetLeft());
-    printTree(itree, os, depth,  1, node->GetRight());    
+    __printTree(itree, os, depth, -1, node->GetLeft());
+    __printTree(itree, os, depth,  1, node->GetRight());    
   }
   '''
         code = replace(code, x, xnew)
@@ -279,23 +283,27 @@ def writeCPP(filename, cname):
            'iargs' :  iargs,
            'inpvars': inpvars,
            'funcname':funcname,
+           'libname': libname,
            'ninputs': len(inputvars),
            'classname': classname}
 
     record = '''// -------------------------------------------------------------------------
 // double mvd(%(hargs)s);
 //      :    :
-// To build libmvd.so do
+// To build do
 //   make
 //
 // To call from C++
-//   gSystem->Load("lib%(funcname)s.so");
+//   #include "TSystem.h"
+//   #include "%(funcname)s.h"
+//      :    :
+//   gSystem->Load("lib%(libname)s");
 //      :    :
 //   %(funcname)s mvd;
 //   double D = mvd(...);
 //
 // Fromm Python
-//   gSystem.Load("lib%(funcname)s.so");
+//   gSystem.Load("lib%(libname)s");
 //      :    :
 //   mvd = %(funcname)s()
 //   D = mvd(...)
@@ -335,6 +343,65 @@ struct %(funcname)s : public __%(funcname)s::%(classname)s
     outfilename = 'src/%s.cc' % funcname
     print '==> creating file: %s' % outfilename
     open(outfilename, 'w').write(record)
+
+    # write header file
+
+    record = '''#ifndef %(funcname)s_h
+#define %(funcname)s_h
+#include <vector>
+#include <string>
+#include <iostream>
+
+namespace __%(funcname)s {
+
+  class IClassifierReader 
+  {
+  public:
+    // constructor
+    IClassifierReader();
+    virtual ~IClassifierReader();
+
+    // return classifier response
+    virtual double GetMvaValue(const std::vector<double>& inpvars,
+                               int ntrees=0) const=0;
+
+    // returns classifier status
+    bool IsStatusClean() const;
+  };
+
+  class %(classname)s : public IClassifierReader 
+  {
+  public:
+    // methods added by writeTMVA.py
+    size_t size();
+    double weight(int itree);
+    double summedWeights();
+    std::vector<std::string> variables();
+    std::vector<std::pair<double, std::string> > ranking(int ntrees=-1);
+    void printTree(int itree);
+    void printTree(int itree, std::ostream& os);
+
+    %(classname)s(std::vector<std::string>& inpvars);
+    virtual ~%(classname)s();
+    double GetMvaValue(const std::vector<double>& inpvars,
+                       int ntrees=0) const;
+  };
+};
+
+struct %(funcname)s : public __%(funcname)s::%(classname)s
+{
+  %(funcname)s();
+  ~%(funcname)s();
+  double operator()(std::vector<double>& inpvars%(ntrees0)s);
+  double operator()(%(iargs)s%(ntrees0)s);
+};
+#endif
+    ''' % names
+
+    outfilename = 'include/%s.h' % funcname
+    print '==> creating file: %s' % outfilename
+    open(outfilename, 'w').write(record)
+    
     return names
 
 def writeLinkdefAndMakefile(records, nameslist):
@@ -363,7 +430,7 @@ def writeLinkdefAndMakefile(records, nameslist):
 #endif
 ''' % rec
     
-    outfilename = 'src/linkdef.h'
+    outfilename = 'include/linkdef.h'
     print '==> creating file: %s' % outfilename    
     open(outfilename, 'w').write(record)
 
@@ -384,15 +451,15 @@ ifndef ROOTSYS
 endif
 ROOFIT	:= $(ROOTSYS)
 # ----------------------------------------------------------------------------
-NAME	:= mvd
+NAME	:= %(libname)s
 srcdir	:= src
 libdir	:= lib
+incdir  := include
 
 # create lib directory if one does not exist
-$(shell mkdir -p lib)
+$(shell mkdir -p src lib include)
 
 # get lists of sources
-
 SRCS:=\
 %(srcs)s
 
@@ -404,7 +471,7 @@ OTHERSRCS:= $(filter-out $(CINTSRCS) $(SRCS),$(wildcard $(srcdir)/*.cc))
 DICTIONARIES:= $(SRCS:.cc=_dict.cc)
 
 # get list of objects
-OBJECTS		:= $(SRCS:.cc=.o) $(OTHERSRCS:.cc=.o) $(DICTIONARIES:.cc=.o)
+OBJECTS		:= $(OTHERSRCS:.cc=.o) $(DICTIONARIES:.cc=.o)
 # ----------------------------------------------------------------------------
 ROOTCINT	:= rootcint
 # check for clang++, otherwise use g++
@@ -417,10 +484,9 @@ else
 \tLD	:= g++
 endif
 
-CPPFLAGS	:= -I.
-CXXFLAGS	:= -O2 -Wall -fPIC -g -ansi -Wshadow -Wextra \
-$(shell root-config --cflags)
-LDFLAGS		:= -g
+CPPFLAGS:= -I.
+CXXFLAGS:= -O2 -Wall -fPIC -ansi -Wshadow -Wextra $(shell root-config --cflags)
+LDFLAGS	:=
 # ----------------------------------------------------------------------------
 # which operating system?
 OS := $(shell uname -s)
@@ -449,7 +515,7 @@ $(OBJECTS)\t: %(percent)s.o	: %(percent)s.cc
 \t@echo "=> Compiling $<"
 \t$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
 
-$(DICTIONARIES)	: $(srcdir)/%(percent)s_dict.cc	: $(srcdir)/%(percent)s.cc $(srcdir)/linkdef.h
+$(DICTIONARIES)	: $(srcdir)/%(percent)s_dict.cc	: $(srcdir)/%(percent)s.cc $(incdir)/linkdef.h
 \t@echo ""
 \t@echo "=> Building dictionary $@"
 \t$(ROOTCINT) -f $@ -c $(CPPFLAGS) $+
@@ -501,11 +567,11 @@ def main():
                                     map(strip, open(filename).readlines())))
 
     # create enhanced TMVA C++ files
-    os.system('mkdir -p src')
+    os.system('mkdir -p src lib include')
     nameslist = []
     for filename, cname in records:
         nameslist.append( writeCPP(filename, cname) )
-
+        print
     writeLinkdefAndMakefile(records, nameslist)
 #-------------------------------------------------------------------------------
 try:
