@@ -474,16 +474,8 @@ DICTIONARIES:= $(SRCS:.cc=_dict.cc)
 OBJECTS		:= $(OTHERSRCS:.cc=.o) $(DICTIONARIES:.cc=.o)
 # ----------------------------------------------------------------------------
 ROOTCINT	:= rootcint
-# check for clang++, otherwise use g++
-COMPILER	:= $(shell which clang++)
-ifneq ($(COMPILER),)
-\tCXX	:= clang++
-\tLD	:= clang++
-else
-\tCXX	:= g++
-\tLD	:= g++
-endif
-
+CXX\t:= g++
+LD\t:= g++
 CPPFLAGS:= -I.
 CXXFLAGS:= -O2 -Wall -fPIC -ansi -Wshadow -Wextra $(shell root-config --cflags)
 LDFLAGS	:=
