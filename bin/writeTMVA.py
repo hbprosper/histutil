@@ -489,7 +489,7 @@ else
 \tLDFLAGS	+= -shared
 \tLDEXT	:= .so
 endif
-LDFLAGS += $(shell root-config --ldflags)
+LDFLAGS += $(shell root-config --ldflags) -Wl,-rpath,$(ROOTSYS)/lib
 
 # libraries
 LIBS	:= $(shell root-config --libs)

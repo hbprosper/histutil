@@ -4,6 +4,7 @@
 # Updated: 28-May-2016 HBP - fix Table (for RGS paper)
 #          09-Apr-2017 HBP - add ranking to BDT
 #          29-Aug-2017 HBP - change to import ROOT
+#          20-Oct-2017 HBP - add option to choose branches in Ntuple
 #-----------------------------------------------------------------------------
 import os, sys, re
 import ROOT
@@ -397,7 +398,7 @@ def getarg(args, key, d):
     else:
         return d
 #------------------------------------------------------------------------------
-def mkpline(xx, y1, y2, boundary, **args):    
+def mkpline(xx, y1, y2, boundary, pad, **args):    
     color  = getarg(args, 'color',   ROOT.kYellow)
     fstyle = getarg(args, 'fstyle',  3001)
     lwidth = getarg(args, 'lwidth',  2)
@@ -443,7 +444,7 @@ def mkpline(xx, y1, y2, boundary, **args):
     else:
         xmin, xmax, ymin, ymax = boundary
 
-    np = ROOT.gPad.ClipPolygon(np, x, y, npp, xc, yc, xmin, ymin, xmax, ymax)
+    np = pad.ClipPolygon(np, x, y, npp, xc, yc, xmin, ymin, xmax, ymax)
     pl = ROOT.TPolyLine(np, xc, yc)
     pl.SetLineColor(color)
     pl.SetLineWidth(lwidth)
@@ -637,8 +638,8 @@ def mkcdf(hist, minbin=1):
 
 def mkroc(name, hsig, hbkg, lcolor=ROOT.kBlue, lwidth=2, ndivx=505, ndivy=505):
     from array import array
-    csig = mkcdf(hsig)
-    cbkg = mkcdf(hbkg)
+    csig = mkcdf(hsig); csig = [ c / csig[-1] for c in csig ]
+    cbkg = mkcdf(hbkg); cbkg = [ c / cbkg[-1] for c in cbkg ]
     npts = len(csig)
     esig = array('d')
     ebkg = array('d')
@@ -920,10 +921,13 @@ class Buffer:
         return s
 
 class Ntuple:
+    '''
+    nt = Ntuple(filename, treename, firstrow=0, nrows=None, branches=None)
+'''
     # "self" is Python's equivalent of the "this" pointer in C++
     # self points to the memory allocated for the object
 
-    def __init__(self, filename, treename, firstrow=0, nrows=None):
+    def __init__(self, filename, treename, firstrow=0, nrows=None, varnames=None):
         from string import find
         
         # cache inputs
@@ -996,12 +1000,25 @@ class Ntuple:
             self.status = -1
             return
 
+        # varnames is given, create a regex to pick out
+        # branches
+        if varnames != None:
+            from string import joinfields
+            vname = r"\b(%s)" % joinfields(varnames, "|")
+            findname = re.compile(vname)
+        else:
+            findname = None
+            
         bnamemap = {}        
         self.vars = []
         for i in xrange(nbranches):
             # get the ith branch (aka variable)
             bname = branches[i].GetName()
-            			
+            
+            if findname != None:
+                if findname.findall(bname) == []:
+                    continue
+                    
             # just in case, check for duplicates!
             if bnamemap.has_key(bname):
                 print '** duplicate branch name: %s' % bname
@@ -1031,7 +1048,7 @@ class Ntuple:
                 continue
             
             # check for leaf counter
-            flag = Long(0)
+            flag = ROOT.Long(0)
             leafcounter = leaf.GetLeafCounter(flag)
             if leafcounter:
                 maxcount = leafcounter.GetMaximum()
@@ -1042,7 +1059,9 @@ class Ntuple:
             self.vars.append( (tname, bname, maxcount) )
                 
         nlen = len(self.vars)
-
+        if nlen == 0:
+            sys.exit("** Ntuple: no branches found!")
+            
         # create a map of variable name to column number
         self.varmap = {}
         for ind, var in enumerate(self.vars):
