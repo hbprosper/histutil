@@ -285,7 +285,9 @@ class PercentileCurve:
     def __init__(self, size):
         self.size = size
         self.points = map(lambda x: [], size*[0])
-
+        self.x = size*[0]
+        self.first = True
+        
     def __del__(self):
         pass
 
@@ -299,9 +301,15 @@ class PercentileCurve:
                 print "nbins: %d, size: %d" % (nbins, self.size)
                 return False
 
-            for ii in xrange(nbins):
+            for ii in range(nbins):
                 c = curve.GetBinContent(ii+1)
                 self.points[ii].append(c)
+
+            if self.first:
+                self.first = False
+                for ii in range(nbins):
+                    self.x[ii] = curve.GetBinLowEdge(ii+1)
+                    +0.5*curve.GetBinWidth(ii+1)
         except:
             if len(curve) != self.size:
                 print "*** PercentileCurve - ERROR*** wrong number of points on curve"
@@ -312,7 +320,7 @@ class PercentileCurve:
                 self.points[ii].append(y)
         return True
 
-    def __call__(self, percentile):
+    def __call__(self, percentile, h=None):
         z = []
         for ii in xrange(self.size):
             points = self.points[ii]
@@ -327,7 +335,10 @@ class PercentileCurve:
                 c2 = points[k+1]
                 c  = c1*(1-f) + c2*f
             else:
-                c = c1				
+                c = c1
+            if h != None:
+                y = h.GetBinContent(ii+1)
+                c /= y
             z.append(c)
         return z
 
@@ -339,7 +350,20 @@ class PercentileCurve:
             c.fromlist(self.__call__(p))
             lines.append(c)
         return lines
-
+    
+    def plines(self, h, c,
+                   xtitle, ytitle,
+                   xmin, xmax,
+                   denom=None):
+        curve = []
+        for p in PERCENT: curve.append( self.__call__(p, denom) )
+        p95 = mkpline(self.x, curve[0], curve[-1], h, c, color=ROOT.kGreen)
+        p68 = mkpline(self.x, curve[1], curve[-2], h, c, color=ROOT.kYellow)
+        p50 = mkgraph(self.x, curve[2],
+                          xtitle, ytitle,
+                          xmin, xmax)
+        return (p50, p68, p95)
+    
 class StandardCurve:
 
     def __init__(self, size):
