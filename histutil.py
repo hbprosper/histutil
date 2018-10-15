@@ -319,7 +319,7 @@ class PercentileCurve:
             for ii, y in enumerate(curve):
                 self.points[ii].append(y)
         return True
-
+            
     def __call__(self, percentile, h=None):
         z = []
         for ii in xrange(self.size):
