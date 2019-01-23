@@ -1282,7 +1282,7 @@ class Node:
 
 #-----------------------------------------------------------------------------
 class BDT:
-    def __init__(self, filename, normweights=True):        
+    def __init__(self, filename, normweights=False):        
         import re
         from os import path
         from sys import exit
@@ -1353,9 +1353,14 @@ class BDT:
             print "tree number %d\tweight = %10.3e" % \
               (itree, self.weights[itree])
 
-        if depth > 100:  return
-        if node == 0:    return
-        if node == None: return
+        if depth > 100:
+            print "*** depth exceeded"
+            return
+        if node == 0:
+            return
+        if node == None:
+            print "*** node: None"
+            return
             
         selector = node.selector
         if selector > -1:
@@ -1367,19 +1372,19 @@ class BDT:
         if which == 0:
             nodedir = 'root '
         elif which < 0:
-            nodedir = 'left '
-        else:
             nodedir = 'right'
+        else:
+            nodedir = 'left'
 
         if node.getNodeType() < 0:
-            nodetype = 'B'
+            name = 'B'
             value = node.getPurity()
         elif node.getNodeType() > 0:
-            nodetype = 'S'
+            name = 'S'
             value = node.getPurity()
 
         depthstr = "  "*(depth+1)
-        print "%s %10s %10s\t%10.2f" % (depthstr, which, name, value)
+        print "%s %10s %10s\t%10.2f" % (depthstr, nodedir, name, value)
         
         depth += 1
         self.printTree(itree, depth, -1, node.left)
@@ -1469,7 +1474,7 @@ class BDT:
         if useValue:
             weight = node.nodeType        
         else:
-            weight =-self.binNumber
+            weight = node.getPurity()
             
         self.hplot.AddBin(xmin, ymin, xmax, ymax)            
         self.hplot.SetBinContent(self.binNumber, weight)
@@ -1479,26 +1484,24 @@ class BDT:
         
         value = node.cutValue
         if node.selector == 0:
-            # left
             xmax1= xmax
             xmax = value
             self.plot2d(itree, hname, xtitle, ytitle,
-                        xmin, xmax, ymin, ymax, useValue, node.left)
-            # right
+                        xmin, xmax, ymin, ymax, useValue, node.right)
+
             xmax = xmax1
             xmin = value
             self.plot2d(itree, hname, xtitle, ytitle,
-                        xmin, xmax, ymin, ymax, useValue, node.right)
+                        xmin, xmax, ymin, ymax, useValue, node.left)
         else:
-            # left
             ymax1 = ymax
             ymax = value
             self.plot2d(itree, hname, xtitle, ytitle,
-                        xmin, xmax, ymin, ymax, useValue, node.left)
-            # right
+                        xmin, xmax, ymin, ymax, useValue, node.right)
+
             ymax = ymax1
             ymin = value
             self.plot2d(itree, hname, xtitle, ytitle,
-                        xmin, xmax, ymin, ymax, useValue, node.right)
+                        xmin, xmax, ymin, ymax, useValue, node.left)
         return self.hplot
 
