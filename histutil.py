@@ -8,10 +8,9 @@
 #-----------------------------------------------------------------------------
 import os, sys, re
 import ROOT
+import math
 from glob import glob
 from array import array
-from string import split, strip, atoi, atof, replace, joinfields
-from math import *
 #-----------------------------------------------------------------------------
 # Hack to suppress harmless warning
 # see: https://root.cern.ch/phpBB3/viewtopic.php?f=14&t=17682
@@ -190,12 +189,11 @@ def setStyle():
     style.cd()
 #------------------------------------------------------------------------------
 def expo(x, fmt="%4.2f", code="#"):
-    from string import replace, split, atof, atoi
     s = "%10.3e" % x
-    s = replace(s, "e", " ")
-    a = split(s)
-    n = atof(a[0])
-    m = atoi(a[1])
+    s = str.replace(s, "e", " ")
+    a = str.split(s)
+    n = float(a[0])
+    m = int(a[1])
     num = fmt % n
     if m != 0:
         s = "%s%stimes10^{%d}" % (num, code, m)
@@ -263,7 +261,7 @@ def addTitle(title="CMS Preliminary       L = 30fb^{-1}    #sqrt{s}=13TeV",
 #------------------------------------------------------------------------------
 PERCENT = [0.0230, 0.1579, 0.5000, 0.8415, 0.9770]
 def percentiles(points, percent):
-    pts = map(lambda x: x, points)
+    pts = [x for x in points]
     pts.sort()
     np = len(pts)
     ps = []
@@ -284,7 +282,7 @@ class PercentileCurve:
 
     def __init__(self, size):
         self.size = size
-        self.points = map(lambda x: [], size*[0])
+        self.points = [[] for _ in size*[0]]
         self.x = size*[0]
         self.first = True
         
@@ -296,9 +294,9 @@ class PercentileCurve:
         try:
             nbins = curve.GetNbinsX()
             if nbins != self.size:
-                print "*** PercentileCurve - "\
-                  "ERROR*** wrong number of bins (points on curve)"
-                print "nbins: %d, size: %d" % (nbins, self.size)
+                print("*** PercentileCurve - "\
+                  "ERROR*** wrong number of bins (points on curve)")
+                print("nbins: %d, size: %d" % (nbins, self.size))
                 return False
 
             for ii in range(nbins):
@@ -312,8 +310,9 @@ class PercentileCurve:
                     +0.5*curve.GetBinWidth(ii+1)
         except:
             if len(curve) != self.size:
-                print "*** PercentileCurve - ERROR*** wrong number of points on curve"
-                print "len(curve): %d, size: %d" % (len(curve), self.size)
+                print("*** PercentileCurve - ERROR*** "\
+                  "wrong number of points on curve")
+                print("len(curve): %d, size: %d" % (len(curve), self.size))
                 return False
 
             for ii, y in enumerate(curve):
@@ -368,7 +367,7 @@ class StandardCurve:
 
     def __init__(self, size):
         self.size = size
-        self.points = map(lambda x: [], size*[0])
+        self.points = [[] for _ in size*[0]]
 
     def __del__(self):
         pass
@@ -379,9 +378,9 @@ class StandardCurve:
         try:
             nbins = curve.GetNbinsX()
             if nbins != self.size:
-                print "*** StandardCurve - ERROR*** "\
-                  "wrong number of bins (points on curve)"
-                print "nbins: %d, size: %d" % (nbins, self.size)
+                print("*** StandardCurve - ERROR*** "\
+                  "wrong number of bins (points on curve)")
+                print("nbins: %d, size: %d" % (nbins, self.size))
                 return False
 
             for ii in xrange(nbins):
@@ -389,8 +388,9 @@ class StandardCurve:
                 self.points[ii].append(c)
         except:
             if len(curve) != self.size:
-                print "*** StandardCurve - ERROR*** wrong number of points on curve"
-                print "len(curve): %d, size: %d" % (len(curve), self.size)
+                print("*** StandardCurve - ERROR*** "\
+                          "wrong number of points on curve")
+                print("len(curve): %d, size: %d" % (len(curve), self.size))
                 return False
 
             for ii, y in enumerate(curve):
@@ -771,8 +771,7 @@ class Table:
         try:
             myfile = open(filename, 'r')
         except:
-            print "*** can't read file %s" % filename
-            sys.exit(0)
+            sys.exit("*** can't read file %s" % filename)
 
         # Read header and check for array variables.
         # An array variable is identified by the syntax "name number"
@@ -972,14 +971,13 @@ class Ntuple:
         fnames = []
         for fname in self.filename:
             if not os.path.exists(fname):
-                print "** Ntuple *** "\
-                      "root file %s not found" % fname
-                sys.exit(0)
+                sys.exit("** Ntuple *** "\
+                      "root file %s not found" % fname)
 
             # check file size
             size = os.path.getsize(fname)
             if size == 0:
-                print "== ZERO length == %s" % fname
+                print("== ZERO length == %s" % fname)
                 continue
             else:
                 fnames.append(fname)
@@ -992,8 +990,7 @@ class Ntuple:
         # create a chain of files
         self.chain = ROOT.TChain(treename)
         if not self.chain:
-            print "*** Ntuple *** can't create chain %s" % treename
-            sys.exit(0)
+            sys.exit("*** Ntuple *** can't create chain %s" % treename)
 
         # ------------------------------------
         # add files to chain
@@ -1002,16 +999,15 @@ class Ntuple:
             try:
                 self.chain.Add(fname)
             except:
-                print "*** problem with file %s" % fname
+                print("*** problem with file %s" % fname)
 
         self.entries = self.chain.GetEntries()
         self.tree = self.chain
         tree = self.tree
 
         if tree == None:
-            print "** problem accessing Tree - "\
-              "perhaps the name %s is wrong?" % treename
-            sys.exit(0)
+            sys.exit("** problem accessing Tree - "\
+              "perhaps the name %s is wrong?" % treename)
 
         # get names of variables from root file
         branches  = tree.GetListOfBranches()
@@ -1020,7 +1016,7 @@ class Ntuple:
         try:
             nbranches = branches.GetEntries()
         except:
-            print "** ====>  problem accessing branches\n"
+            print("** ====>  problem accessing branches\n")
             self.status = -1
             return
 
@@ -1045,7 +1041,7 @@ class Ntuple:
                     
             # just in case, check for duplicates!
             if bnamemap.has_key(bname):
-                print '** duplicate branch name: %s' % bname
+                print('** duplicate branch name: %s' % bname)
                 continue
             else:
                 bnamemap[bname] = 1
@@ -1054,13 +1050,11 @@ class Ntuple:
             # Get all leaves associated with this branch
             leaves = branches[i].GetListOfLeaves()
             if leaves == None:
-                print "No leaves found!"
-                sys.exit(0)
+                sys.exit("No leaves found!")
 
             leaf = leaves[0]
             if leaf == None:
-                print "No leaf found"
-                sys.exit(0)
+                sys.exit("No leaf found")
 
             leafname = leaf.GetName()
 
@@ -1068,7 +1062,7 @@ class Ntuple:
             tname = leaf.GetTypeName()
 
             if find(tname, 'vector') > -1:
-                #print '**skipping %s\t%s for now' % (tname, name)
+                #print('**skipping %s\t%s for now' % (tname, name))
                 continue
             
             # check for leaf counter
@@ -1215,7 +1209,7 @@ class Ntuple:
         return rec
 
     def ls(self):
-        print self.__str__()
+        print(self.__str__())
 
     def variables(self):
         return self.varname
@@ -1287,8 +1281,7 @@ class BDT:
         from os import path
         from sys import exit
         if not path.exists(filename):
-            print '** BDT ** error ** cannot open file %s' % filename
-            exit()
+            sys.exit('** BDT ** error ** cannot open file %s' % filename)
 
         self.normweights = normweights
         
@@ -1304,13 +1297,13 @@ class BDT:
         self.forest  = []
 
         for index, record in enumerate(recs):
-            record = replace(record, 'NN(', 'Node(')
-            record = replace(record,'  //','#')
-            record = replace(record,'  fBoostWeights.push_back',
+            record = str.replace(record, 'NN(', 'Node(')
+            record = str.replace(record,'  //','#')
+            record = str.replace(record,'  fBoostWeights.push_back',
                                  'self.weights.append')
-            record = replace(record,'  fForest.push_back',
+            record = str.replace(record,'  fForest.push_back',
                                  'self.forest.append')
-            record = replace(record,';','')
+            record = str.replace(record,';','')
             exec(record)
                 
     def __del__(self):
@@ -1338,7 +1331,7 @@ class BDT:
         if self.normweights:
             value /= norm
         else:
-            value = 1.0/(1 + exp(-2*value))
+            value = 1.0/(1 + exp(-value))
         return value
 
     def __len__(self):
@@ -1350,16 +1343,16 @@ class BDT:
     def printTree(self, itree, depth=0, which=0, node=None):
         if which == 0:
             node = self.forest[itree]
-            print "tree number %d\tweight = %10.3e" % \
-              (itree, self.weights[itree])
+            print("tree number %d\tweight = %10.3e" % \
+              (itree, self.weights[itree]))
 
         if depth > 100:
-            print "*** depth exceeded"
+            print("*** depth exceeded")
             return
         if node == 0:
             return
         if node == None:
-            print "*** node: None"
+            print("*** node: None")
             return
             
         selector = node.selector
@@ -1384,7 +1377,7 @@ class BDT:
             value = node.getPurity()
 
         depthstr = "  "*(depth+1)
-        print "%s %10s %10s\t%10.2f" % (depthstr, nodedir, name, value)
+        print("%s %10s %10s\t%10.2f" % (depthstr, nodedir, name, value))
         
         depth += 1
         self.printTree(itree, depth, -1, node.left)
@@ -1456,20 +1449,17 @@ class BDT:
             node = self.forest[itree]
 
         if node == None:
-            print "*** node is None - shouldn't happen ***"
-            sys.exit(0)
+            sys.exit("*** node is None - shouldn't happen ***")
 
         if self.hplot == None:
-            print "*** hplot is None - shouldn't happen ***"
-            sys.exit(0)
+            sys.exit("*** hplot is None - shouldn't happen ***")
 
         if node == 0:
             return self.hplot
  
         self.binNumber += 1
         if self.binNumber > 20:
-            print "*** lost in trees ***"
-            sys.exit(0)
+            sys.exit("*** lost in trees ***")
             
         if useValue:
             weight = node.nodeType        
