@@ -11,6 +11,7 @@ import ROOT
 import math
 from glob import glob
 from array import array
+from ctypes import c_int
 #-----------------------------------------------------------------------------
 # Hack to suppress harmless warning
 # see: https://root.cern.ch/phpBB3/viewtopic.php?f=14&t=17682
@@ -321,7 +322,7 @@ class PercentileCurve:
             
     def __call__(self, percentile, h=None):
         z = []
-        for ii in xrange(self.size):
+        for ii in range(self.size):
             points = self.points[ii]
             points.sort()
             np = len(points)
@@ -383,7 +384,7 @@ class StandardCurve:
                 print("nbins: %d, size: %d" % (nbins, self.size))
                 return False
 
-            for ii in xrange(nbins):
+            for ii in range(nbins):
                 c = curve.GetBinContent(ii+1)
                 self.points[ii].append(c)
         except:
@@ -399,7 +400,7 @@ class StandardCurve:
 
     def __call__(self, nsigma):
         z = []
-        for ii in xrange(self.size):
+        for ii in range(self.size):
             points = self.points[ii]
             c = sum(points)/len(points)
             ec= sqrt(sum(map(lambda x: (x-c)**2, points))/len(points))
@@ -417,7 +418,7 @@ class StandardCurve:
         return lines
 #------------------------------------------------------------------------------
 def getarg(args, key, d):
-    if args.has_key(key):
+    if key in args:
         return args[key]
     else:
         return d
@@ -444,7 +445,7 @@ def mkpline(xx, y1, y2, boundary, pad, **args):
 
     # upper curve
 
-    for i in xrange(nbins):
+    for i in range(nbins):
         j = nbins - i - 1
         x.append(xx[j])
         y.append(y2[j])
@@ -654,7 +655,7 @@ def mkgraphErrors(x, y, ex, ey, xtitle, ytitle, xmin, xmax, **args):
 def mkcdf(hist, minbin=1):
     c = [0.0]*(hist.GetNbinsX()-minbin+2)
     j=0
-    for ibin in xrange(minbin, hist.GetNbinsX()+1):
+    for ibin in range(minbin, hist.GetNbinsX()+1):
         c[j] = c[j-1] + hist.GetBinContent(ibin)
         j += 1
     c[j] = hist.Integral()
@@ -667,7 +668,7 @@ def mkroc(name, hsig, hbkg, lcolor=ROOT.kBlue, lwidth=2, ndivx=505, ndivy=505):
     npts = len(csig)
     esig = array('d')
     ebkg = array('d')
-    for i in xrange(npts):
+    for i in range(npts):
         esig.append(1 - csig[npts-1-i])
         ebkg.append(1 - cbkg[npts-1-i])
     g = ROOT.TGraph(npts, ebkg, esig)
@@ -813,7 +814,7 @@ class Table:
                 if size > 1:
                     self.varmap[name] = [len(self.header),
                                          len(self.header)+size-1]
-                    for j in xrange(size):
+                    for j in range(size):
                         newname = '%s[%d]' % (name, j)
                         self.header.append(newname)
                 else:
@@ -862,7 +863,7 @@ class Table:
         
         # Create a name to index map for rows
         self.rowmap = {} # empty map
-        for index in xrange(len(self.data)):
+        for index in range(len(self.data)):
             self.rowmap['%d' % index] = index            
 
     def __del__(self):
@@ -927,7 +928,7 @@ class Buffer:
         self.variable = variable
 
     def __getattr__(self, variable):
-        if self.buffermap.has_key(variable):
+        if variable in self.buffermap:
             jj = self.buffermap[variable]
             return self.buffer[jj].__getattribute__(variable)
         else:
@@ -951,8 +952,6 @@ class Ntuple:
     # self points to the memory allocated for the object
 
     def __init__(self, filename, treename, firstrow=0, nrows=None, varnames=None):
-        from string import find
-        
         # cache inputs
         self.status = 0
 
@@ -1031,7 +1030,7 @@ class Ntuple:
             
         bnamemap = {}        
         self.vars = []
-        for i in xrange(nbranches):
+        for i in range(nbranches):
             # get the ith branch (aka variable)
             bname = branches[i].GetName()
             
@@ -1040,7 +1039,7 @@ class Ntuple:
                     continue
                     
             # just in case, check for duplicates!
-            if bnamemap.has_key(bname):
+            if bname in bnamemap:
                 print('** duplicate branch name: %s' % bname)
                 continue
             else:
@@ -1061,12 +1060,12 @@ class Ntuple:
             # get leaf type (int, float, double, etc.)
             tname = leaf.GetTypeName()
 
-            if find(tname, 'vector') > -1:
+            if str.find(tname, 'vector') > -1:
                 #print('**skipping %s\t%s for now' % (tname, name))
                 continue
             
             # check for leaf counter
-            flag = ROOT.Long(0)
+            flag = c_int()
             leafcounter = leaf.GetLeafCounter(flag)
             if leafcounter:
                 maxcount = leafcounter.GetMaximum()
@@ -1117,7 +1116,7 @@ class Ntuple:
                 bufferName = "S%d_%d" % (self.postfix, bufferCount)
                 rec = "struct %s {" % bufferName
 
-            if find(tname, 'vector') > -1:
+            if str.find(tname, 'vector') > -1:
                 # special handling for vectors
                 continue
             
@@ -1218,7 +1217,7 @@ class Ntuple:
     def __iter__(self):
         return self
 
-    def next(self):
+    def __next__(self):
         if self.row > self.entries-1:
             self.row = 0
             raise StopIteration
@@ -1319,7 +1318,7 @@ class BDT:
 
         value = 0.0
         norm  = 0.0
-        for itree in xrange(ntrees):
+        for itree in range(ntrees):
             current = self.forest[itree]
             while current.getNodeType() == 0:
                 if current.goesRight(inputValues):
@@ -1390,7 +1389,7 @@ class BDT:
             maxtrees = len(self.forest)
         else:
             maxtrees = min(ntrees, len(self.forest))
-        for itree in xrange(maxtrees):
+        for itree in range(maxtrees):
             self.__rank(itree)
 
         recs = []
